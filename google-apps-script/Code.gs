@@ -2,14 +2,12 @@ const SECRET = "CHANGE_ME_TO_A_RANDOM_SECRET";
 const BUDGETS_SHEET = "budgets";
 const EXPENSES_SHEET = "expenses";
 const BUDGET_HEADERS = ["userId", "startDate", "endDate", "totalBudget", "createdAt", "updatedAt"];
-const EXPENSE_HEADERS = ["userId", "date", "itemName", "amount", "rawMessage", "createdAt"];
+const EXPENSE_HEADERS = ["userId", "date", "itemName", "amount", "rawMessage", "createdAt", "category"];
 
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (body.secret !== SECRET) {
-      return json({ ok: false, error: "unauthorized" });
-    }
+    if (body.secret !== SECRET) return json({ ok: false, error: "unauthorized" });
 
     ensureSheets();
 
@@ -19,6 +17,12 @@ function doPost(e) {
     if (body.action === "appendExpense") return json({ ok: true, expense: appendExpense(body.expense) });
     if (body.action === "listExpenses") {
       return json({ ok: true, expenses: listExpenses(body.userId, body.startDate, body.endDate) });
+    }
+    if (body.action === "deleteLastExpense") {
+      return json({ ok: true, expense: deleteLastExpense(body.userId, body.startDate, body.endDate) });
+    }
+    if (body.action === "updateLastExpense") {
+      return json({ ok: true, result: updateLastExpense(body.userId, body.startDate, body.endDate, body.changes) });
     }
     if (body.action === "resetUserData") return json({ ok: true, result: resetUserData(body.userId) });
 
@@ -52,20 +56,10 @@ function upsertBudget(budget) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BUDGETS_SHEET);
   const rows = rowsToObjects(BUDGETS_SHEET, true);
   const existing = rows.find((row) => row.userId === budget.userId);
-  const values = [
-    budget.userId,
-    budget.startDate,
-    budget.endDate,
-    budget.totalBudget,
-    existing ? existing.createdAt : now,
-    now,
-  ];
+  const values = [budget.userId, budget.startDate, budget.endDate, budget.totalBudget, existing ? existing.createdAt : now, now];
 
-  if (existing) {
-    sheet.getRange(existing.rowNumber, 1, 1, values.length).setValues([values]);
-  } else {
-    sheet.appendRow(values);
-  }
+  if (existing) sheet.getRange(existing.rowNumber, 1, 1, values.length).setValues([values]);
+  else sheet.appendRow(values);
 
   return budget;
 }
@@ -78,6 +72,7 @@ function appendExpense(expense) {
     expense.amount,
     expense.rawMessage,
     new Date().toISOString(),
+    expense.category || "",
   ]);
   return expense;
 }
@@ -85,14 +80,33 @@ function appendExpense(expense) {
 function listExpenses(userId, startDate, endDate) {
   return rowsToObjects(EXPENSES_SHEET)
     .filter((row) => row.userId === userId && row.date >= startDate && row.date <= endDate)
-    .map((row) => ({
-      userId: row.userId,
-      date: row.date,
-      itemName: row.itemName,
-      amount: Number(row.amount),
-      rawMessage: row.rawMessage,
-      createdAt: row.createdAt,
-    }));
+    .map(normalizeExpense)
+    .sort((a, b) => `${a.date} ${a.createdAt}`.localeCompare(`${b.date} ${b.createdAt}`));
+}
+
+function deleteLastExpense(userId, startDate, endDate) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXPENSES_SHEET);
+  const latest = rowsToObjects(EXPENSES_SHEET, true)
+    .filter((row) => row.userId === userId && row.date >= startDate && row.date <= endDate)
+    .sort((a, b) => `${b.date} ${b.createdAt}`.localeCompare(`${a.date} ${a.createdAt}`))[0];
+  if (!latest) return null;
+
+  sheet.deleteRow(latest.rowNumber);
+  return normalizeExpense(latest);
+}
+
+function updateLastExpense(userId, startDate, endDate, changes) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXPENSES_SHEET);
+  const latest = rowsToObjects(EXPENSES_SHEET, true)
+    .filter((row) => row.userId === userId && row.date >= startDate && row.date <= endDate)
+    .sort((a, b) => `${b.date} ${b.createdAt}`.localeCompare(`${a.date} ${a.createdAt}`))[0];
+  if (!latest) return null;
+
+  const before = normalizeExpense(latest);
+  const after = normalizeExpense(Object.assign({}, latest, changes || {}));
+  const values = EXPENSE_HEADERS.map((header) => after[header] || "");
+  sheet.getRange(latest.rowNumber, 1, 1, values.length).setValues([values]);
+  return { before, after };
 }
 
 function resetUserData(userId) {
@@ -123,7 +137,7 @@ function rowsToObjects(sheetName, includeRowNumber) {
     const object = {};
     headers.forEach((header, column) => {
       object[header] = row[column] instanceof Date
-        ? Utilities.formatDate(row[column], "Asia/Tokyo", "yyyy-MM-dd")
+        ? Utilities.formatDate(row[column], "Asia/Tokyo", header === "date" ? "yyyy-MM-dd" : "yyyy-MM-dd'T'HH:mm:ssXXX")
         : String(row[column] || "");
     });
     if (includeRowNumber) object.rowNumber = index + 2;
@@ -131,8 +145,18 @@ function rowsToObjects(sheetName, includeRowNumber) {
   });
 }
 
+function normalizeExpense(row) {
+  return {
+    userId: row.userId,
+    date: row.date,
+    itemName: row.itemName,
+    amount: Number(row.amount),
+    rawMessage: row.rawMessage,
+    createdAt: row.createdAt,
+    category: row.category || "",
+  };
+}
+
 function json(data) {
-  return ContentService
-    .createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
 }
