@@ -36,6 +36,7 @@ LINEで支出を送るだけで、設定した期間の「あといくら使え�
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 OPENAI_API_KEY=
+OPENAI_ENABLED=false
 SPREADSHEET_ID=
 GOOGLE_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_PRIVATE_KEY=
@@ -45,6 +46,8 @@ PORT=3000
 ```
 
 `GOOGLE_PRIVATE_KEY` は改行を `\n` に置き換えて1行で設定できます。
+
+無料運用したい場合は `OPENAI_ENABLED=false` のままにしてください。この状態ではOpenAI APIを呼ばず、ローカル解析だけで動きます。
 
 サービスアカウントキーを作れない場合は、`SHEETS_WEBAPP_URL` と `SHEETS_WEBAPP_SECRET` を使うGoogle Apps Script方式で動かせます。その場合、`GOOGLE_SERVICE_ACCOUNT_EMAIL` と `GOOGLE_PRIVATE_KEY` は空欄でOKです。
 
