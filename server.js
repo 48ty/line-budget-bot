@@ -61,6 +61,18 @@ async function handleEvent(event) {
   if (!userId || !replyToken) return;
 
   try {
+    console.log("Received text message", {
+      userId,
+      text,
+      replyToken: replyToken ? "present" : "missing",
+    });
+
+    const directCommand = detectDirectCommand(text);
+    if (directCommand === "help") {
+      await replyText(replyToken, helpMessage());
+      return;
+    }
+
     try {
       await ensureSheets();
     } catch (error) {
@@ -74,6 +86,12 @@ async function handleEvent(event) {
 
     if (pendingResetUsers.has(userId)) {
       await handleResetConfirmation(userId, replyToken, text);
+      return;
+    }
+
+    if (directCommand) {
+      const reply = await handleCommand(userId, directCommand);
+      await replyText(replyToken, reply);
       return;
     }
 
@@ -212,6 +230,24 @@ function helpMessage() {
     "コマンド：",
     "残り / 今日 / 一覧 / リセット / ヘルプ",
   ].join("\n");
+}
+
+function detectDirectCommand(text) {
+  const normalized = text.trim().toLowerCase();
+  const commands = new Map([
+    ["\u6b8b\u308a", "remaining"],
+    ["remaining", "remaining"],
+    ["\u4eca\u65e5", "today"],
+    ["today", "today"],
+    ["\u4e00\u89a7", "list"],
+    ["list", "list"],
+    ["\u30ea\u30bb\u30c3\u30c8", "reset"],
+    ["reset", "reset"],
+    ["\u30d8\u30eb\u30d7", "help"],
+    ["help", "help"],
+  ]);
+
+  return commands.get(normalized) || null;
 }
 
 const port = process.env.PORT || 3000;
